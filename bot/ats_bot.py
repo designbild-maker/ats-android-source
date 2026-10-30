@@ -191,6 +191,7 @@ class Panel:
         self.password = password
         self.token = token
         self.csrf = None
+        self.v3 = None
         self.jar = CookieJar()
         # The panel listens on localhost: never send this traffic through a proxy.
         self.opener = urllib.request.build_opener(
@@ -277,41 +278,145 @@ class Panel:
             return res.get("obj")
         raise PanelError(path)
 
+    @staticmethod
+    def _as_dict(value):
+        """3x-ui v2 returns settings as JSON strings, v3 as objects."""
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+    def is_v3(self):
+        """v3 has a separate clients API (one client attached to several inbounds)."""
+        if self.v3 is None:
+            try:
+                self.api("GET", "/panel/api/clients/list")
+                self.v3 = True
+            except PanelError:
+                self.v3 = False
+        return self.v3
+
     def inbounds(self):
-        """The inbounds ATS uses (matched by port), with their parsed client lists."""
+        """The inbounds ATS uses (matched by port). In v2 also their client lists."""
         result = []
         for ib in self.api("GET", "/panel/api/inbounds/list") or []:
             if ib.get("port") not in INBOUND_PORTS:
                 continue
-            settings = json.loads(ib.get("settings") or "{}")
-            stream = json.loads(ib.get("streamSettings") or "{}")
+            settings = self._as_dict(ib.get("settings"))
+            stream = self._as_dict(ib.get("streamSettings"))
             result.append({"id": ib["id"], "port": ib["port"], "remark": ib.get("remark", ""),
-                           "clients": settings.get("clients", []), "stream": stream})
+                           "clients": settings.get("clients") or [], "stream": stream})
         result.sort(key=lambda x: INBOUND_PORTS.index(x["port"]))
         return result
 
     @staticmethod
-    def default_flow(inbound):
-        for c in inbound["clients"]:
-            if "flow" in c:
-                return c.get("flow", "")
+    def stream_flow(inbound):
         stream = inbound["stream"]
-        if stream.get("network") == "tcp" and stream.get("security") == "reality":
+        if stream.get("network") in ("tcp", "raw") and stream.get("security") == "reality":
             return "xtls-rprx-vision"
         return ""
 
+    @classmethod
+    def default_flow(cls, inbound):
+        for c in inbound["clients"]:
+            if "flow" in c:
+                return c.get("flow", "")
+        return cls.stream_flow(inbound)
+
+    def check_summary(self):
+        """Lines for the admin /check command."""
+        ibs = self.inbounds()
+        v3 = self.is_v3()
+        counts = {}
+        if v3:
+            for c in self.api("GET", "/panel/api/clients/list") or []:
+                for iid in c.get("inboundIds") or []:
+                    counts[iid] = counts.get(iid, 0) + 1
+        lines = [f"Панель: OK ({'3x-ui v3' if v3 else '3x-ui v2'}). Подключения ATS ({len(ibs)} из {len(INBOUND_PORTS)}):"]
+        for ib in ibs:
+            n = counts.get(ib["id"], 0) if v3 else len(ib["clients"])
+            lines.append(f"• порт {ib['port']} «{ib['remark']}», клиентов: {n}")
+        return lines
+
+    # ----- create / extend
+
     def grant(self, tg_id, sub_id, months, comment):
-        """Create or extend the user's client in every ATS inbound. Returns the new expiry (ms)."""
+        """Create or extend the user's access in every ATS inbound. Returns the new expiry (ms)."""
         inbounds = self.inbounds()
         if not inbounds:
             raise PanelError(f"no inbounds on ports {INBOUND_PORTS}")
+        if self.is_v3():
+            return self._grant_v3(tg_id, sub_id, months, comment, inbounds)
+        return self._grant_v2(tg_id, sub_id, months, comment, inbounds)
+
+    def _v3_get(self, email):
+        try:
+            obj = self.api("GET", f"/panel/api/clients/get/{urllib.parse.quote(email)}")
+        except PanelError:
+            return None, []
+        if not obj:
+            return None, []
+        client = obj.get("client") if isinstance(obj.get("client"), dict) else obj
+        return client, obj.get("inboundIds") or client.get("inboundIds") or []
+
+    def _v3_flow(self, inbounds):
+        """Flow used by existing clients of these inbounds (e.g. the admin's own key)."""
+        ids = {ib["id"] for ib in inbounds}
+        try:
+            for c in self.api("GET", "/panel/api/clients/list") or []:
+                if ids.issubset(set(c.get("inboundIds") or [])) and c.get("email"):
+                    full, _ = self._v3_get(c["email"])
+                    if full and "flow" in full:
+                        return full.get("flow") or ""
+        except PanelError:
+            pass
+        return next((self.stream_flow(ib) for ib in inbounds if self.stream_flow(ib)), "")
+
+    def _grant_v3(self, tg_id, sub_id, months, comment, inbounds):
+        email = f"ats{tg_id}"
+        inbound_ids = [ib["id"] for ib in inbounds]
+        existing, attached = self._v3_get(email)
+        current = int((existing or {}).get("expiryTime") or 0)
+        expiry = max(current, now_ms()) + plan_ms(months)
+        if existing:
+            client = {k: v for k, v in existing.items() if k not in ("inboundIds", "traffic", "uuid")}
+            client.setdefault("id", existing.get("uuid"))
+            client.update({"expiryTime": expiry, "enable": True, "limitIp": DEVICE_LIMIT})
+            self.api("POST", f"/panel/api/clients/update/{urllib.parse.quote(email)}", client)
+            missing = [i for i in inbound_ids if i not in attached]
+            if missing:
+                try:
+                    self.api("POST", f"/panel/api/clients/{urllib.parse.quote(email)}/attach",
+                             {"inboundIds": missing})
+                except PanelError as e:
+                    log("attach failed:", e)
+        else:
+            client = {
+                "email": email,
+                "subId": sub_id,
+                "id": str(uuid.uuid4()),
+                "flow": self._v3_flow(inbounds),
+                "totalGB": 0,
+                "expiryTime": expiry,
+                "limitIp": DEVICE_LIMIT,
+                "tgId": int(tg_id),
+                "comment": comment[:60],
+                "enable": True,
+            }
+            self.api("POST", "/panel/api/clients/add", {"client": client, "inboundIds": inbound_ids})
+        return expiry
+
+    def _grant_v2(self, tg_id, sub_id, months, comment, inbounds):
         current = 0
         for ib in inbounds:
             for c in ib["clients"]:
                 if c.get("subId") == sub_id:
                     current = max(current, int(c.get("expiryTime") or 0))
-        start = max(current, now_ms())
-        expiry = start + plan_ms(months)
+        expiry = max(current, now_ms()) + plan_ms(months)
         for ib in inbounds:
             email = f"ats{tg_id}-{ib['port']}"
             existing = next((c for c in ib["clients"] if c.get("email") == email), None)
@@ -339,8 +444,12 @@ class Panel:
                          {"id": ib["id"], "settings": json.dumps({"clients": [client]})})
         return expiry
 
+    # ----- status
+
     def status(self, sub_id):
         """Expiry (ms, 0 = none) and used bytes for a subscription, or None if not found."""
+        if self.is_v3():
+            return self._status_v3(sub_id)
         found = False
         expiry = 0
         emails = []
@@ -360,6 +469,34 @@ class Panel:
                     used += int(t.get("up") or 0) + int(t.get("down") or 0)
             except PanelError:
                 pass
+        return {"expiry": expiry, "used": used}
+
+    def _status_v3(self, sub_id):
+        try:
+            rows = self.api("GET", f"/panel/api/clients/get/subId/{urllib.parse.quote(sub_id)}") or []
+        except PanelError:
+            return None
+        if isinstance(rows, dict):
+            rows = [rows]
+        if not rows:
+            return None
+        expiry = 0
+        used = 0
+        for row in rows:
+            client = row.get("client") if isinstance(row.get("client"), dict) else row
+            expiry = max(expiry, int(client.get("expiryTime") or 0))
+            ut = row.get("usedTraffic")
+            if isinstance(ut, (int, float)):
+                used += int(ut)
+            elif isinstance(ut, dict):
+                used += int(ut.get("up") or 0) + int(ut.get("down") or 0)
+            elif client.get("email"):
+                try:
+                    t = self.api("GET", f"/panel/api/clients/traffic/{urllib.parse.quote(client['email'])}")
+                    if t:
+                        used += int(t.get("up") or 0) + int(t.get("down") or 0)
+                except PanelError:
+                    pass
         return {"expiry": expiry, "used": used}
 
 
@@ -562,11 +699,7 @@ class Bot:
         cmd, _, arg = text.partition(" ")
         if cmd == "/check":
             try:
-                ibs = self.panel.inbounds()
-                lines = [f"Панель: OK. Подключения ATS ({len(ibs)} из {len(INBOUND_PORTS)}):"]
-                for ib in ibs:
-                    lines.append(f"• порт {ib['port']} «{esc(ib['remark'])}», клиентов: {len(ib['clients'])}, "
-                                 f"flow: {self.panel.default_flow(ib) or '—'}")
+                lines = [esc(x) for x in self.panel.check_summary()]
                 lines.append(f"Ссылки подписки: {esc(SUB_BASE_URL)}…")
                 self.tg.send(chat_id, "\n".join(lines))
             except PanelError as e:
@@ -684,10 +817,9 @@ class Bot:
             sys.exit(1)
         log(f"started as @{me.get('username')}")
         try:
-            ibs = self.panel.inbounds()
-            log("panel OK, inbounds:", [ib["port"] for ib in ibs])
-        except PanelError as e:
-            log("panel check failed:", e)
+            log(" / ".join(self.panel.check_summary()))
+        except Exception as e:  # never let a panel problem stop the bot
+            log("panel check failed:", repr(e))
         self.tg.send(ADMIN_ID, "Бот ATS запущен. Команды администратора: /admin")
         while True:
             try:
