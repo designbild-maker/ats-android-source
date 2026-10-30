@@ -1,0 +1,2 @@
+# ATS: the signing key never goes into the public source archive.
+signing/ export-ignore

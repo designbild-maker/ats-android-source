@@ -1,0 +1,159 @@
+name: Build ATS APK
+
+# Builds the ATS Android app (v2rayNG-based) on every push to main,
+# or by hand from the Actions tab. Each build becomes a GitHub Release
+# with the APK files and the matching GPL source archive.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ats-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+      with:
+        submodules: 'recursive'
+        fetch-depth: '0'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v4
+      with:
+        log-accepted-android-sdk-licenses: false
+        cmdline-tools-version: '14742923'
+        packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
+
+    - name: Install NDK
+      run: |
+        echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+          --channel=0 \
+          --install "ndk;30.0.16248370"
+        echo "NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> $GITHUB_ENV
+        sed -i '10i\
+        \
+            ndkVersion = "30.0.16248370"' ${{ github.workspace }}/V2rayNG/app/build.gradle.kts
+
+    - name: Restore cached libhevtun
+      id: cache-libhevtun-restore
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ github.workspace }}/libs
+        key: libhevtun-${{ runner.os }}-${{ env.NDK_HOME }}-${{ hashFiles('.git/modules/hev-socks5-tunnel/HEAD') }}-${{ hashFiles('compile-hevtun.sh') }}
+
+    - name: Build libhevtun
+      if: steps.cache-libhevtun-restore.outputs.cache-hit != 'true'
+      run: |
+        bash compile-hevtun.sh
+
+    - name: Save libhevtun
+      if: steps.cache-libhevtun-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ github.workspace }}/libs
+        key: libhevtun-${{ runner.os }}-${{ env.NDK_HOME }}-${{ hashFiles('.git/modules/hev-socks5-tunnel/HEAD') }}-${{ hashFiles('compile-hevtun.sh') }}
+
+    - name: Copy libhevtun
+      run: |
+        cp -r ${{ github.workspace }}/libs ${{ github.workspace }}/V2rayNG/app
+
+    - name: Fetch AndroidLibXrayLite tag
+      run: |
+        pushd AndroidLibXrayLite
+        CURRENT_TAG=$(git describe --tags --abbrev=0)
+        echo "Current tag in this repo: $CURRENT_TAG"
+        echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_ENV
+        popd
+
+    - name: Download libv2ray
+      uses: robinraju/release-downloader@v1.13
+      with:
+        repository: '2dust/AndroidLibXrayLite'
+        tag: ${{ env.CURRENT_TAG }}
+        fileName: 'libv2ray.aar'
+        out-file-path: V2rayNG/app/libs/
+
+    - name: Setup Java
+      uses: actions/setup-java@v6.1.0
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+
+    - name: Build APK
+      run: |
+        cd ${{ github.workspace }}/V2rayNG
+        echo "sdk.dir=${ANDROID_HOME}" > local.properties
+        chmod 755 gradlew
+        KS="${{ github.workspace }}/signing/ats-release.jks"
+        PW="$(cat ${{ github.workspace }}/signing/keystore-password.txt)"
+        set -o pipefail
+        ./gradlew assemblePlaystoreRelease \
+          -Pandroid.injected.signing.store.file="$KS" \
+          -Pandroid.injected.signing.store.password="$PW" \
+          -Pandroid.injected.signing.key.alias=ats \
+          -Pandroid.injected.signing.key.password="$PW" 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+        ls -la app/build/outputs/apk/playstore/release/
+
+    # On failure, surface the key error lines as annotations (readable without log access).
+    - name: Report build errors
+      if: failure()
+      run: |
+        LOG="$RUNNER_TEMP/gradle.log"
+        [ -f "$LOG" ] || { echo "::error title=No gradle log::Build failed before Gradle started"; exit 0; }
+        grep -nE "^e: |error:|What went wrong|FAILURE|Exception|Could not|> " "$LOG" | head -60 > "$RUNNER_TEMP/errs.txt" || true
+        tail -n 40 "$LOG" > "$RUNNER_TEMP/tail.txt"
+        enc() { python3 -c 'import sys;d=sys.stdin.read()[:3500];print(d.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'; }
+        echo "::error title=Gradle errors::$(enc < "$RUNNER_TEMP/errs.txt")"
+        echo "::error title=Gradle log tail::$(enc < "$RUNNER_TEMP/tail.txt")"
+
+    - name: Make GPL source archive
+      run: |
+        set -e
+        OUT="${{ github.workspace }}/dist"
+        SRC="$RUNNER_TEMP/ats-android-src"
+        mkdir -p "$OUT" "$SRC"
+        # Main tree (the signing/ folder is excluded via .gitattributes export-ignore)
+        git archive HEAD | tar -x -C "$SRC"
+        # Native submodules (Xray core wrapper and hev-socks5-tunnel) at the pinned revisions
+        git submodule foreach --recursive --quiet \
+          'mkdir -p "'"$SRC"'/$displaypath" && git archive HEAD | tar -x -C "'"$SRC"'/$displaypath"'
+        (cd "$RUNNER_TEMP" && zip -qr "$OUT/ATS-source-${{ github.run_number }}.zip" ats-android-src)
+        ls -la "$OUT"
+
+    - name: Collect APKs
+      run: |
+        set -e
+        R=V2rayNG/app/build/outputs/apk/playstore/release
+        cp $R/*universal*.apk $R/*arm64-v8a*.apk $R/*armeabi-v7a*.apk dist/
+        ls -la dist
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: ATS-build-${{ github.run_number }}
+        path: dist/*
+
+    - name: Publish release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -e
+        VERSION=$(grep -m1 'versionName = ' V2rayNG/app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
+        TAG="v${VERSION}-build${{ github.run_number }}"
+        gh release create "$TAG" dist/* \
+          --repo "${{ github.repository }}" \
+          --target "${{ github.sha }}" \
+          --title "ATS ${VERSION} (сборка ${{ github.run_number }})" \
+          --notes "Для телефона скачайте файл ATS_${VERSION}_universal.apk (подходит для любого Android). Файлы arm64-v8a / armeabi-v7a меньше по размеру, но подходят только своему типу процессора. Исходный код этой версии: ATS-source-${{ github.run_number }}.zip (GPL-3.0, основано на v2rayNG)." \
+          --prerelease
