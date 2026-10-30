@@ -51,6 +51,8 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "0") or 0)
 PANEL_URL = os.environ.get("PANEL_URL", "").rstrip("/")
 PANEL_USER = os.environ.get("PANEL_USER", "")
 PANEL_PASS = os.environ.get("PANEL_PASS", "")
+# 3x-ui v3+: API token from Settings -> Security -> API Token (preferred over login/password).
+PANEL_TOKEN = os.environ.get("PANEL_TOKEN", "")
 SUB_BASE_URL = os.environ.get("SUB_BASE_URL", "")
 if SUB_BASE_URL and not SUB_BASE_URL.endswith("/"):
     SUB_BASE_URL += "/"
@@ -183,10 +185,12 @@ class PanelError(Exception):
 class Panel:
     """Minimal 3x-ui API client (login with a session cookie, inbounds and clients)."""
 
-    def __init__(self, base, user, password):
+    def __init__(self, base, user, password, token=""):
         self.base = base
         self.user = user
         self.password = password
+        self.token = token
+        self.csrf = None
         self.jar = CookieJar()
         # The panel listens on localhost: never send this traffic through a proxy.
         self.opener = urllib.request.build_opener(
@@ -196,7 +200,11 @@ class Panel:
 
     def _call(self, method, path, form=None, body=None):
         url = self.base + path
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        elif self.csrf and method != "GET":
+            headers["X-CSRF-Token"] = self.csrf
         data = None
         if form is not None:
             data = urllib.parse.urlencode(form).encode()
@@ -217,11 +225,38 @@ class Panel:
         except json.JSONDecodeError:
             raise PanelError(f"not JSON on {path} (wrong PANEL_URL or not logged in)")
 
+    def _fetch_csrf(self):
+        """3x-ui v3 protects cookie sessions with a CSRF token from GET /csrf-token."""
+        try:
+            res = self._call("GET", "/csrf-token")
+        except PanelError:
+            return None
+        obj = res.get("obj") if isinstance(res, dict) else None
+        if isinstance(obj, str):
+            return obj
+        for src in (obj, res):
+            if isinstance(src, dict):
+                for key in ("csrfToken", "token", "csrf"):
+                    if isinstance(src.get(key), str):
+                        return src[key]
+        return None
+
     def login(self):
-        res = self._call("POST", "/login", form={"username": self.user, "password": self.password})
+        if self.token:
+            self.logged_in = True
+            return
+        self.csrf = self._fetch_csrf()
+        creds = {"username": self.user, "password": self.password}
+        try:
+            res = self._call("POST", "/login", body=creds)
+        except PanelError:
+            # Older 3x-ui versions expect a form-encoded login.
+            res = self._call("POST", "/login", form=creds)
         if not res.get("success"):
             raise PanelError("login failed: " + str(res.get("msg", "")))
         self.logged_in = True
+        # Some versions issue a fresh CSRF token bound to the new session.
+        self.csrf = self._fetch_csrf() or self.csrf
 
     def api(self, method, path, body=None):
         for attempt in (1, 2):
@@ -375,7 +410,7 @@ MENU = [[BTN_GET, BTN_MY], [BTN_APP, BTN_HELP]]
 class Bot:
     def __init__(self):
         self.tg = Telegram(BOT_TOKEN)
-        self.panel = Panel(PANEL_URL, PANEL_USER, PANEL_PASS)
+        self.panel = Panel(PANEL_URL, PANEL_USER, PANEL_PASS, PANEL_TOKEN)
         self.store = Store(DB_PATH)
         self.offset = None
         self.last_reminder_check = 0
@@ -638,7 +673,7 @@ class Bot:
 
     def run(self):
         missing = [k for k, v in (("BOT_TOKEN", BOT_TOKEN), ("ADMIN_ID", ADMIN_ID), ("PANEL_URL", PANEL_URL),
-                                  ("PANEL_USER", PANEL_USER), ("PANEL_PASS", PANEL_PASS),
+                                  ("PANEL_LOGIN", PANEL_TOKEN or (PANEL_USER and PANEL_PASS)),
                                   ("SUB_BASE_URL", SUB_BASE_URL)) if not v]
         if missing:
             log("missing settings in .env:", ", ".join(missing))

@@ -50,8 +50,19 @@ ask_req() { # like ask, but repeats until something is entered
   done
 }
 
+# Add/replace only the 3x-ui API token:  curl -fsSL .../install.sh | sudo SET_PANEL_TOKEN=1 bash
+if [ "${SET_PANEL_TOKEN:-0}" = "1" ] && [ -f "$ENV_FILE" ]; then
+  echo "Панель 3x-ui → Настройки → Безопасность → API Token: создайте токен и вставьте его сюда."
+  ask_req PANEL_TOKEN "API-токен панели 3x-ui" "" secret
+  umask 077
+  grep -v '^PANEL_TOKEN=' "$ENV_FILE" >"$ENV_FILE.tmp" || true
+  echo "PANEL_TOKEN=$PANEL_TOKEN" >>"$ENV_FILE.tmp"
+  mv "$ENV_FILE.tmp" "$ENV_FILE"
+  echo "API-токен сохранён."
+fi
+
 # Re-enter all settings:  curl -fsSL .../install.sh | sudo RECONFIGURE=1 bash
-if [ "${RECONFIGURE:-0}" = "1" ]; then rm -f "$ENV_FILE"; fi
+if [ "${RECONFIGURE:-0}" = "1" ]; then systemctl stop ats-bot 2>/dev/null || true; rm -f "$ENV_FILE"; fi
 
 if [ ! -f "$ENV_FILE" ]; then
   echo
@@ -60,8 +71,13 @@ if [ ! -f "$ENV_FILE" ]; then
   ask_req BOT_TOKEN   "Токен бота от @BotFather" "" secret
   ask_req ADMIN_ID    "Ваш Telegram ID (от @userinfobot)" ""
   ask_req PANEL_URL   "Адрес панели 3x-ui на этом сервере (http://127.0.0.1:ПОРТ/ПУТЬ)" ""
-  ask_req PANEL_USER  "Логин панели 3x-ui" ""
-  ask_req PANEL_PASS  "Пароль панели 3x-ui" "" secret
+  echo "Вход в панель: API-токен (3x-ui v3: Настройки → Безопасность → API Token) или логин и пароль."
+  ask PANEL_TOKEN "API-токен панели (Enter — войти по логину и паролю)" "" secret
+  PANEL_USER=""; PANEL_PASS=""
+  if [ -z "$PANEL_TOKEN" ]; then
+    ask_req PANEL_USER  "Логин панели 3x-ui" ""
+    ask_req PANEL_PASS  "Пароль панели 3x-ui" "" secret
+  fi
   ask_req SERVER_IP   "IP-адрес сервера (как в ссылке подписки)" "$IP_GUESS"
   ask SUB_PATH    "Путь подписки (часть ссылки между портом и ключом)" "sub"
   SUB_PATH=${SUB_PATH#/}; SUB_PATH=${SUB_PATH%/}
@@ -75,6 +91,7 @@ ADMIN_ID=$ADMIN_ID
 PANEL_URL=$PANEL_URL
 PANEL_USER=$PANEL_USER
 PANEL_PASS=$PANEL_PASS
+PANEL_TOKEN=$PANEL_TOKEN
 SUB_BASE_URL=$SUB_BASE_URL
 INBOUND_PORTS=$INBOUND_PORTS
 DEVICE_LIMIT=$DEVICE_LIMIT

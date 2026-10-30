@@ -21,7 +21,8 @@
 curl -fsSL https://raw.githubusercontent.com/designbild-maker/ats-android-source/main/bot/install.sh | sudo bash
 ```
 
-Повторный запуск обновляет бота и сохраняет настройки. Ввести настройки заново:
+Повторный запуск обновляет бота и сохраняет настройки. Для 3x-ui v3 лучше вход по API-токену
+(Настройки → Безопасность → API Token): `... | sudo SET_PANEL_TOKEN=1 bash`. Ввести настройки заново:
 `... | sudo RECONFIGURE=1 bash`. Настройки: `/opt/ats-bot/.env` (доступ только у root и бота).
 
 Полезное: `sudo systemctl status ats-bot`, `sudo journalctl -u ats-bot -f`.
