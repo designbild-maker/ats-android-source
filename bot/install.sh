@@ -41,6 +41,15 @@ ask() { # ask VAR "question" default [secret]
   printf -v "$__var" '%s' "${__ans:-$__def}"
 }
 
+ask_req() { # like ask, but repeats until something is entered
+  local __v=$1
+  while :; do
+    ask "$@"
+    [ -n "${!__v}" ] && break
+    echo "  Это поле обязательно, введите значение."
+  done
+}
+
 # Re-enter all settings:  curl -fsSL .../install.sh | sudo RECONFIGURE=1 bash
 if [ "${RECONFIGURE:-0}" = "1" ]; then rm -f "$ENV_FILE"; fi
 
@@ -48,12 +57,12 @@ if [ ! -f "$ENV_FILE" ]; then
   echo
   echo "Первичная настройка. Пароли и токен вводятся невидимо и хранятся только на этом сервере."
   IP_GUESS=$(hostname -I 2>/dev/null | awk '{print $1}')
-  ask BOT_TOKEN   "Токен бота от @BotFather" "" secret
-  ask ADMIN_ID    "Ваш Telegram ID (от @userinfobot)" ""
-  ask PANEL_URL   "Адрес панели 3x-ui на этом сервере (http://127.0.0.1:ПОРТ/ПУТЬ)" ""
-  ask PANEL_USER  "Логин панели 3x-ui" ""
-  ask PANEL_PASS  "Пароль панели 3x-ui" "" secret
-  ask SERVER_IP   "IP-адрес сервера (как в ссылке подписки)" "$IP_GUESS"
+  ask_req BOT_TOKEN   "Токен бота от @BotFather" "" secret
+  ask_req ADMIN_ID    "Ваш Telegram ID (от @userinfobot)" ""
+  ask_req PANEL_URL   "Адрес панели 3x-ui на этом сервере (http://127.0.0.1:ПОРТ/ПУТЬ)" ""
+  ask_req PANEL_USER  "Логин панели 3x-ui" ""
+  ask_req PANEL_PASS  "Пароль панели 3x-ui" "" secret
+  ask_req SERVER_IP   "IP-адрес сервера (как в ссылке подписки)" "$IP_GUESS"
   ask SUB_PATH    "Путь подписки (часть ссылки между портом и ключом)" "sub"
   SUB_PATH=${SUB_PATH#/}; SUB_PATH=${SUB_PATH%/}
   ask SUB_BASE_URL "Начало ссылки подписки" "https://$SERVER_IP:2096/$SUB_PATH/"
