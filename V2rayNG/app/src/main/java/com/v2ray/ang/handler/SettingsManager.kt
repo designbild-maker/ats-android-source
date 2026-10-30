@@ -40,6 +40,7 @@ object SettingsManager {
     fun initApp(context: Context) {
         ensureDefaultSettings()
         applyAtsDefaultsOnce()
+        applyAtsDefaultsV2()
         //ensureDefaultSubscription()
         initRoutingRulesets(context)
         migrateServerListToSubscriptions()
@@ -504,6 +505,16 @@ object SettingsManager {
         // Dark theme with ATS colors, no wallpaper-based dynamic colors
         MmkvManager.encodeSettings(AppConfig.PREF_UI_MODE_NIGHT, "2")
         MmkvManager.encodeSettings(AppConfig.PREF_DYNAMIC_COLOR, false)
+        MmkvManager.encodeSettings(appliedKey, true)
+    }
+
+    /** ATS 0.3: "Apps without VPN" means the chosen apps bypass the VPN (once, keeps user choice). */
+    private fun applyAtsDefaultsV2() {
+        val appliedKey = "ats_defaults_applied_v2"
+        if (MmkvManager.decodeSettingsBool(appliedKey, false)) {
+            return
+        }
+        MmkvManager.encodeSettings(AppConfig.PREF_BYPASS_APPS, true)
         MmkvManager.encodeSettings(appliedKey, true)
     }
 

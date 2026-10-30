@@ -160,13 +160,13 @@
     <string name="menu_item_select_all">Выбрать все</string>
     <string name="menu_item_invert_selection">Инвертировать выбор</string>
     <string name="msg_enter_keywords">Введите ключевое слово</string>
-    <string name="switch_bypass_apps_mode">Обход</string>
+    <string name="switch_bypass_apps_mode">Выбранные работают без VPN</string>
     <string name="menu_item_select_proxy_app">Автовыбор проксируемых приложений</string>
     <string name="msg_downloading_content">Загрузка данных</string>
     <string name="menu_item_export_proxy_app">Экспорт в буфер обмена</string>
     <string name="menu_item_import_proxy_app">Импорт из буфера обмена</string>
     <string name="per_app_proxy_settings">Выбор приложений</string>
-    <string name="per_app_proxy_settings_enable">Использовать выбор</string>
+    <string name="per_app_proxy_settings_enable">Выбирать приложения</string>
     <string name="app_picker_unknown_app">Неизвестное приложение (неопознанный UID)</string>
 
     <!-- Preferences -->
@@ -622,4 +622,12 @@
         <item quantity="many">%d дней</item>
         <item quantity="other">%d дня</item>
     </plurals>
+    <string name="ats_version_line">ATS %1$s</string>
+    <string name="ats_admin_title">Администратор</string>
+    <string name="ats_admin_text">Введите PIN-код, чтобы открыть дополнительные настройки.</string>
+    <string name="ats_admin_pin">PIN-код</string>
+    <string name="ats_admin_wrong">Неверный PIN-код</string>
+    <string name="ats_admin_open">Открыть</string>
+    <string name="ats_cancel">Отмена</string>
+    <string name="ats_admin_unavailable">Дополнительные настройки недоступны в этой сборке</string>
 </resources>

@@ -160,13 +160,13 @@
     <string name="menu_item_select_all">Select all</string>
     <string name="menu_item_invert_selection">Invert selection</string>
     <string name="msg_enter_keywords">Enter keywords</string>
-    <string name="switch_bypass_apps_mode">Bypass Mode</string>
+    <string name="switch_bypass_apps_mode">Selected apps bypass VPN</string>
     <string name="menu_item_select_proxy_app">Auto-select apps to be proxied</string>
     <string name="msg_downloading_content">Downloading content</string>
     <string name="menu_item_export_proxy_app">Export to Clipboard</string>
     <string name="menu_item_import_proxy_app">Import from Clipboard</string>
     <string name="per_app_proxy_settings">Per-app settings</string>
-    <string name="per_app_proxy_settings_enable">Enable per-app</string>
+    <string name="per_app_proxy_settings_enable">Choose apps</string>
     <string name="app_picker_unknown_app">Unknown app (UID not recognized)</string>
 
     <!-- Preferences -->
@@ -617,4 +617,12 @@
         <item quantity="one">%d day</item>
         <item quantity="other">%d days</item>
     </plurals>
+    <string name="ats_version_line">ATS %1$s</string>
+    <string name="ats_admin_title">Administrator</string>
+    <string name="ats_admin_text">Enter the PIN to open advanced settings.</string>
+    <string name="ats_admin_pin">PIN</string>
+    <string name="ats_admin_wrong">Wrong PIN</string>
+    <string name="ats_admin_open">Open</string>
+    <string name="ats_cancel">Cancel</string>
+    <string name="ats_admin_unavailable">Advanced settings are not available in this build</string>
 </resources>

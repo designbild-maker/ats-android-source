@@ -60,6 +60,8 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
             currentSelection + packageName
         }
         replaceBlacklist(newSelection)
+        // ATS: picking an app is meant to take effect, so switch the per-app mode on.
+        if (newSelection.isNotEmpty()) setPerAppProxyEnabled(true)
         SettingsChangeManager.makeRestartService()
     }
 

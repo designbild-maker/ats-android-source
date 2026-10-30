@@ -43,6 +43,21 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -87,6 +102,10 @@ data class AtsScreenState(
     val subscriptionName: String?,
     val startOnBoot: Boolean,
     val versionName: String,
+    /** Admin entered the PIN in this session: "Advanced settings" is shown. */
+    val adminUnlocked: Boolean,
+    val adminPinConfigured: Boolean,
+    val pinStatus: AtsPinStatus,
 )
 
 /** User operations the ATS screens can request; the activity routes each one. */
@@ -102,6 +121,9 @@ data class AtsCallbacks(
     val onAppsWithoutVpn: () -> Unit,
     val onAdvanced: () -> Unit,
     val onAbout: () -> Unit,
+    val onSubmitPin: (String) -> Unit,
+    val onPinDialogClosed: () -> Unit,
+    val onAdminUnavailable: () -> Unit,
 )
 
 @Composable
@@ -535,21 +557,125 @@ private fun AtsSettings(state: AtsScreenState, callbacks: AtsCallbacks, onOpenSe
                 subtitle = null,
                 onClick = callbacks.onSupport,
             )
-            AtsDivider()
-            AtsLinkRow(
-                title = stringResource(R.string.ats_advanced),
-                subtitle = stringResource(R.string.ats_advanced_sub),
-                onClick = callbacks.onAdvanced,
-            )
+            // "Advanced settings" (full v2rayNG interface) is for the admin only.
+            if (state.adminUnlocked) {
+                AtsDivider()
+                AtsLinkRow(
+                    title = stringResource(R.string.ats_advanced),
+                    subtitle = stringResource(R.string.ats_advanced_sub),
+                    onClick = callbacks.onAdvanced,
+                )
+            }
             AtsDivider()
             AtsLinkRow(
                 title = stringResource(R.string.ats_about),
-                subtitle = stringResource(R.string.ats_version, state.versionName),
+                subtitle = null,
                 onClick = callbacks.onAbout,
             )
         }
+
+        // Seven taps on the version line open the admin PIN prompt.
+        var versionTaps by remember { mutableIntStateOf(0) }
+        var showPinDialog by rememberSaveable { mutableStateOf(false) }
+        Text(
+            text = stringResource(R.string.ats_version_line, state.versionName),
+            fontSize = 13.sp,
+            color = AtsMuted,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) {
+                    versionTaps++
+                    if (versionTaps >= 7) {
+                        versionTaps = 0
+                        when {
+                            state.adminUnlocked -> callbacks.onAdvanced()
+                            state.adminPinConfigured -> showPinDialog = true
+                            else -> callbacks.onAdminUnavailable()
+                        }
+                    }
+                }
+                .padding(top = 20.dp),
+        )
         Spacer(Modifier.height(24.dp))
+
+        if (showPinDialog && !state.adminUnlocked) {
+            AtsPinDialog(
+                status = state.pinStatus,
+                onSubmit = callbacks.onSubmitPin,
+                onDismiss = {
+                    showPinDialog = false
+                    callbacks.onPinDialogClosed()
+                },
+            )
+        }
+        // Correct PIN: close the prompt and open the advanced screen once.
+        LaunchedEffect(state.adminUnlocked) {
+            if (state.adminUnlocked && showPinDialog) {
+                showPinDialog = false
+                callbacks.onAdvanced()
+            }
+        }
     }
+}
+
+// ---------------------------------------------------------------- admin PIN
+
+@Composable
+private fun AtsPinDialog(
+    status: AtsPinStatus,
+    onSubmit: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var pin by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.ats_admin_title)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+            ) {
+                Text(
+                    text = stringResource(R.string.ats_admin_text),
+                    fontSize = 14.sp,
+                    color = AtsMuted,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { value -> pin = value.filter { it.isDigit() }.take(12) },
+                    label = { Text(stringResource(R.string.ats_admin_pin)) },
+                    singleLine = true,
+                    isError = status == AtsPinStatus.Wrong,
+                    supportingText = if (status == AtsPinStatus.Wrong) {
+                        { Text(stringResource(R.string.ats_admin_wrong)) }
+                    } else null,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { onSubmit(pin) }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSubmit(pin) },
+                enabled = pin.isNotEmpty() && status != AtsPinStatus.Checking,
+            ) { Text(stringResource(R.string.ats_admin_open)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.ats_cancel)) }
+        },
+    )
 }
 
 // ---------------------------------------------------------------- server picker

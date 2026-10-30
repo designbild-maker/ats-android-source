@@ -13,8 +13,8 @@ android {
         applicationId = "com.ats.connect"
         minSdk = 24
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 4
+        versionName = "0.2.2"
 
         val abiFilterList = (properties["ABI_FILTERS"] as? String)?.split(';')
         splits {
@@ -36,6 +36,10 @@ android {
         }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // ATS: hash of the admin PIN that unlocks "Advanced settings" (see signing/README.md).
+        // Empty when the private signing folder is absent, e.g. in the public source copy.
+        buildConfigField("String", "ADMIN_PIN_HASH", "\"${atsAdminPinHash()}\"")
     }
 
     buildTypes {
@@ -221,4 +225,21 @@ dependencies {
     testImplementation(libs.mockito.core)
     testImplementation(libs.mockito.kotlin)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+}
+
+/**
+ * ATS: PBKDF2 hash of the admin PIN kept in the private `signing/admin-pin.txt`.
+ * Must match AtsAdminPin.hash() in the app.
+ */
+fun atsAdminPinHash(): String {
+    val pinFile = rootProject.file("../signing/admin-pin.txt")
+    if (!pinFile.exists()) return ""
+    val pin = pinFile.readText().trim()
+    if (pin.isEmpty()) return ""
+    val spec = javax.crypto.spec.PBEKeySpec(
+        pin.toCharArray(), "ats-admin-pin-v1".toByteArray(), 20000, 256
+    )
+    val bytes = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1")
+        .generateSecret(spec).encoded
+    return bytes.joinToString("") { "%02x".format(it) }
 }

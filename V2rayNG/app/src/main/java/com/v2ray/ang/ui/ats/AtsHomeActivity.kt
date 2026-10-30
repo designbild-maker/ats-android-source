@@ -109,6 +109,9 @@ class AtsHomeActivity : HelperBaseComponentActivity() {
             subscriptionName = group?.remarks,
             startOnBoot = settings.startOnBoot,
             versionName = BuildConfig.VERSION_NAME,
+            adminUnlocked = settings.adminUnlocked,
+            adminPinConfigured = settings.adminPinConfigured,
+            pinStatus = settings.pinStatus,
         )
 
         AtsApp(
@@ -129,6 +132,9 @@ class AtsHomeActivity : HelperBaseComponentActivity() {
                 onAppsWithoutVpn = { openScreen(PerAppProxyActivity::class.java) },
                 onAdvanced = { openScreen(MainActivity::class.java) },
                 onAbout = { openScreen(AboutActivity::class.java) },
+                onSubmitPin = settingsViewModel::submitAdminPin,
+                onPinDialogClosed = settingsViewModel::resetPinStatus,
+                onAdminUnavailable = { toast(R.string.ats_admin_unavailable) },
             ),
         )
     }
