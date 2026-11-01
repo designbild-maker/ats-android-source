@@ -383,10 +383,7 @@ class Panel:
         current = int((existing or {}).get("expiryTime") or 0)
         expiry = max(current, now_ms()) + plan_ms(months)
         if existing:
-            client = {k: v for k, v in existing.items() if k not in ("inboundIds", "traffic", "uuid")}
-            client.setdefault("id", existing.get("uuid"))
-            client.update({"expiryTime": expiry, "enable": True, "limitIp": DEVICE_LIMIT})
-            self.api("POST", f"/panel/api/clients/update/{urllib.parse.quote(email)}", client)
+            expiry = self._v3_extend(email, existing, expiry)
             missing = [i for i in inbound_ids if i not in attached]
             if missing:
                 try:
@@ -408,6 +405,40 @@ class Panel:
                 "enable": True,
             }
             self.api("POST", "/panel/api/clients/add", {"client": client, "inboundIds": inbound_ids})
+        return expiry
+
+    def _v3_extend(self, email, existing, expiry):
+        """Move a v3 client's expiry to `expiry` (ms). Returns the expiry the panel now has."""
+        current = int(existing.get("expiryTime") or 0)
+        if current > 0:
+            # Preferred: bulkAdjust only adds days, without rewriting the whole client row
+            # (a full update of the row has created duplicate clients in some 3x-ui v3 builds).
+            add_days = max(1, -(-(expiry - current) // DAY_MS))
+            try:
+                self.api("POST", "/panel/api/clients/bulkAdjust", {"emails": [email], "addDays": add_days})
+                after, _ = self._v3_get(email)
+                new_expiry = int((after or {}).get("expiryTime") or 0)
+                if new_expiry >= expiry - DAY_MS:
+                    if after.get("enable") is False:
+                        try:
+                            self.api("POST", "/panel/api/clients/bulkEnable", {"emails": [email]})
+                        except PanelError as e:
+                            log("bulkEnable failed:", e)
+                    return new_expiry
+                log("bulkAdjust did not move expiry, falling back to update")
+            except PanelError as e:
+                log("bulkAdjust failed, falling back to update:", e)
+        # Fallback: full update. The client's UUID goes in "id" as a string; the numeric
+        # database row id that the panel returns must not be sent back.
+        client = {k: v for k, v in existing.items()
+                  if k not in ("inboundIds", "traffic", "uuid", "id", "createdAt", "updatedAt")}
+        cid = existing.get("uuid")
+        if not isinstance(cid, str) and isinstance(existing.get("id"), str):
+            cid = existing.get("id")
+        if cid:
+            client["id"] = cid
+        client.update({"expiryTime": expiry, "enable": True, "limitIp": DEVICE_LIMIT})
+        self.api("POST", f"/panel/api/clients/update/{urllib.parse.quote(email)}", client)
         return expiry
 
     def _grant_v2(self, tg_id, sub_id, months, comment, inbounds):
@@ -580,6 +611,15 @@ class Bot:
             keyboard=MENU,
         )
 
+    def plan_buttons(self, prefix):
+        return [[{"text": months_word(m), "callback_data": f"{prefix}{m}"} for m in PLANS[:2]],
+                [{"text": months_word(m), "callback_data": f"{prefix}{m}"} for m in PLANS[2:]]]
+
+    def ask_plan(self, chat_id, renew):
+        title = "Продление подписки ATS." if renew else "Доступ к ATS."
+        self.tg.send(chat_id, f"{title}\nВыберите срок — до {DEVICE_LIMIT} устройств по одному ключу:",
+                     inline=self.plan_buttons("plan:"))
+
     def on_get_access(self, chat_id, user):
         rec = self.store.user(user["id"])
         if rec and rec.get("sub_id"):
@@ -590,19 +630,37 @@ class Bot:
                 self.tg.send(chat_id, "Ключ уже действует. Чтобы продлить, нажмите кнопку ниже.",
                              inline=[[{"text": "Продлить", "callback_data": "renew"}]])
                 return
-        self.request_access(chat_id, user, renew=bool(rec and rec.get("sub_id")))
+        self.ask_plan(chat_id, renew=bool(rec and rec.get("sub_id")))
 
-    def request_access(self, chat_id, user, renew):
+    def request_access(self, chat_id, user, months):
+        rec = self.store.user(user["id"])
+        renew = bool(rec and rec.get("sub_id"))
         name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x)
         uname = f"@{user['username']}" if user.get("username") else "без username"
         kind = "продление" if renew else "новый доступ"
-        buttons = [[{"text": months_word(m), "callback_data": f"ok:{user['id']}:{m}"} for m in PLANS[:2]],
-                   [{"text": months_word(m), "callback_data": f"ok:{user['id']}:{m}"} for m in PLANS[2:]],
-                   [{"text": "Отклонить", "callback_data": f"no:{user['id']}"}]]
-        self.tg.send(ADMIN_ID, f"<b>Запрос: {kind}</b>\n{esc(name)} ({esc(uname)}), id <code>{user['id']}</code>",
-                     inline=buttons)
-        self.tg.send(chat_id, "Запрос отправлен администратору. Как только он подтвердит, "
-                              "я пришлю ваш ключ сюда.", keyboard=MENU)
+        text = (f"<b>Запрос: {kind} — {months_word(months)}</b>\n"
+                f"{esc(name)} ({esc(uname)}), id <code>{user['id']}</code>")
+        if renew:
+            st = self.safe_status(rec["sub_id"])
+            if st and st["expiry"]:
+                text += f"\nСейчас действует до {fmt_date(st['expiry'])}."
+        buttons = [[{"text": f"Выдать {months_word(months)}", "callback_data": f"ok:{user['id']}:{months}"}],
+                   [{"text": "Другой срок", "callback_data": f"alt:{user['id']}"},
+                    {"text": "Отклонить", "callback_data": f"no:{user['id']}"}]]
+        # Only one open request per user: the previous one is marked as replaced.
+        old = self.store.get(f"pending:{user['id']}")
+        if old:
+            try:
+                old = json.loads(old)
+                self.tg.call("editMessageText", chat_id=ADMIN_ID, message_id=old["mid"], parse_mode="HTML",
+                             text=old["text"] + "\n\n<i>Заменён новым запросом.</i>")
+            except (ValueError, KeyError, TypeError):
+                pass
+        sent = self.tg.send(ADMIN_ID, text, inline=buttons)
+        if sent:
+            self.store.put(f"pending:{user['id']}", json.dumps({"mid": sent["message_id"], "text": text}))
+        self.tg.send(chat_id, f"Запрос на {months_word(months)} отправлен администратору. "
+                              "Как только он подтвердит, я пришлю ключ сюда.", keyboard=MENU)
 
     def on_my_sub(self, chat_id, user):
         rec = self.store.user(user["id"])
@@ -667,18 +725,58 @@ class Bot:
         self.tg.send(tg_id, self.key_message(sub_id, expiry), keyboard=MENU)
         return f"Выдано: {months_word(months)}, до {fmt_date(expiry)}."
 
+    def close_request(self, tg_id, result):
+        """Mark the user's open admin request as handled (buttons removed, result appended)."""
+        old = self.store.get(f"pending:{tg_id}")
+        if not old:
+            return False
+        try:
+            old = json.loads(old)
+            self.tg.call("editMessageText", chat_id=ADMIN_ID, message_id=old["mid"], parse_mode="HTML",
+                         text=old["text"] + "\n\n" + esc(result))
+        except (ValueError, KeyError, TypeError):
+            return False
+        self.store.put(f"pending:{tg_id}", "")
+        return True
+
     def on_callback(self, cq):
         data = cq.get("data", "")
         user = cq["from"]
         msg = cq.get("message") or {}
+        answer = lambda text="", alert=False: self.tg.call(
+            "answerCallbackQuery", callback_query_id=cq["id"], text=text[:190], show_alert=alert)
+
+        # ----- user buttons
         if data == "renew":
-            self.tg.call("answerCallbackQuery", callback_query_id=cq["id"])
-            self.request_access(user["id"], user, renew=True)
+            answer()
+            self.ask_plan(user["id"], renew=True)
             return
+        if data.startswith("plan:"):
+            answer()
+            try:
+                months = int(data.split(":")[1])
+            except ValueError:
+                return
+            if months not in PLANS:
+                return
+            if msg:
+                self.tg.call("editMessageText", chat_id=msg["chat"]["id"], message_id=msg["message_id"],
+                             text=f"Выбран срок: {months_word(months)}.")
+            self.request_access(user["id"], user, months)
+            return
+
+        # ----- admin buttons
         if user["id"] != ADMIN_ID:
-            self.tg.call("answerCallbackQuery", callback_query_id=cq["id"])
+            answer()
             return
         parts = data.split(":")
+        if parts[0] == "alt" and msg:
+            answer()
+            tg_id = parts[1]
+            buttons = self.plan_buttons(f"ok:{tg_id}:") + [[{"text": "Отклонить", "callback_data": f"no:{tg_id}"}]]
+            self.tg.call("editMessageReplyMarkup", chat_id=msg["chat"]["id"], message_id=msg["message_id"],
+                         reply_markup={"inline_keyboard": buttons})
+            return
         try:
             if parts[0] == "ok":
                 result = self.approve(int(parts[1]), int(parts[2]), cq)
@@ -687,13 +785,19 @@ class Bot:
                                             "напишите в поддержку.", keyboard=MENU)
                 result = "Отклонено."
             else:
-                result = None
+                answer()
+                return
         except PanelError as e:
-            result = f"Ошибка панели: {e}"
-        self.tg.call("answerCallbackQuery", callback_query_id=cq["id"], text=(result or "")[:190])
-        if result and msg:
+            # Keep the buttons so the request can be retried after the problem is fixed.
+            log("approve failed:", e)
+            answer(f"Ошибка панели: {e}", alert=True)
+            self.tg.send(ADMIN_ID, f"Не удалось выдать доступ: {esc(e)}\nКнопки в запросе остались — "
+                                   "можно повторить позже.")
+            return
+        answer(result)
+        if not self.close_request(int(parts[1]), result) and msg:
             self.tg.call("editMessageText", chat_id=msg["chat"]["id"], message_id=msg["message_id"],
-                         text=(msg.get("text") or "") + "\n\n" + result)
+                         parse_mode="HTML", text=esc(msg.get("text") or "") + "\n\n" + esc(result))
 
     def on_admin_command(self, chat_id, text, msg):
         cmd, _, arg = text.partition(" ")
@@ -721,7 +825,9 @@ class Bot:
         if cmd == "/give":
             try:
                 tg_id, months = (int(x) for x in arg.split())
-                self.tg.send(chat_id, self.approve(tg_id, months, None))
+                result = self.approve(tg_id, months, None)
+                self.close_request(tg_id, result)
+                self.tg.send(chat_id, result)
             except ValueError:
                 self.tg.send(chat_id, "Формат: /give <id> <месяцев>")
             except PanelError as e:
