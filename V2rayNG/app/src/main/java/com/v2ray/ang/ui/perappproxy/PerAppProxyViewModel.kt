@@ -61,7 +61,7 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
         }
         replaceBlacklist(newSelection)
         // ATS: picking an app is meant to take effect, so switch the per-app mode on.
-        if (newSelection.isNotEmpty()) setPerAppProxyEnabled(true)
+        if (newSelection.isNotEmpty() && !atsSimpleMode) setPerAppProxyEnabled(true)
         SettingsChangeManager.makeRestartService()
     }
 
@@ -74,6 +74,24 @@ class PerAppProxyViewModel(application: Application) : BaseViewModel(application
 
         _blacklist.value = newBlacklist
         MmkvManager.encodeSettings(AppConfig.PREF_PER_APP_PROXY_SET, newBlacklist.toMutableSet())
+        if (atsSimpleMode) {
+            setPerAppProxyEnabled(newBlacklist.isNotEmpty())
+        }
+    }
+
+    /**
+     * ATS "Apps without VPN" mode: the checked apps always bypass the VPN, and the per-app
+     * mode is on exactly when at least one app is checked. No switches are shown.
+     */
+    private var atsSimpleMode = false
+
+    fun enableAtsSimpleMode() {
+        atsSimpleMode = true
+        if (!_bypassApps.value) SettingsChangeManager.makeRestartService()
+        setBypassAppsEnabled(true)
+        val shouldEnable = _blacklist.value.isNotEmpty()
+        if (_perAppProxyEnabled.value != shouldEnable) SettingsChangeManager.makeRestartService()
+        setPerAppProxyEnabled(shouldEnable)
     }
 
     // Per‑app proxy switch

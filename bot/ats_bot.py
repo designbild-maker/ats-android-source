@@ -879,7 +879,12 @@ class Bot:
                 return
 
         if text.startswith("/start"):
-            self.on_start(chat_id, user)
+            # "Renew" in the app opens t.me/<bot>?start=renew
+            if text.split()[1:2] == ["renew"]:
+                rec = self.store.user(user["id"])
+                self.ask_plan(chat_id, renew=bool(rec and rec.get("sub_id")))
+            else:
+                self.on_start(chat_id, user)
         elif text == BTN_GET:
             self.on_get_access(chat_id, user)
         elif text == BTN_MY or text == "/my":

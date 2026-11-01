@@ -67,9 +67,17 @@ class PerAppProxyActivity : BaseComponentActivity() {
 
     private val viewModel: PerAppProxyViewModel by viewModels()
 
+    private val atsSimple: Boolean by lazy { intent.getBooleanExtra(EXTRA_ATS_SIMPLE, false) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (atsSimple) viewModel.enableAtsSimpleMode()
         viewModel.loadApps(this)
+    }
+
+    companion object {
+        /** ATS: open as the simple "Apps without VPN" list (no mode switches, no menu). */
+        const val EXTRA_ATS_SIMPLE = "ats_simple"
     }
 
     @Composable
@@ -86,6 +94,7 @@ class PerAppProxyActivity : BaseComponentActivity() {
             blacklist = blacklist,
             perAppProxyEnabled = perAppProxyEnabled,
             bypassApps = bypassApps,
+            simpleMode = atsSimple,
             onBackClick = { finish() },
             onPerAppProxyChanged = { viewModel.setPerAppProxyEnabled(it) },
             onBypassAppsChanged = { viewModel.setBypassAppsEnabled(it) },
@@ -114,6 +123,7 @@ fun PerAppProxyScreen(
     blacklist: Set<String>,
     perAppProxyEnabled: Boolean,
     bypassApps: Boolean,
+    simpleMode: Boolean = false,
     onBackClick: () -> Unit,
     onPerAppProxyChanged: (Boolean) -> Unit,
     onBypassAppsChanged: (Boolean) -> Unit,
@@ -140,7 +150,7 @@ fun PerAppProxyScreen(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             AppTopBar(
-                title = stringResource(R.string.per_app_proxy_settings),
+                title = stringResource(if (simpleMode) R.string.ats_apps_without_vpn else R.string.per_app_proxy_settings),
                 onBackClick = onBackClick,
                 isLoading = isLoading,
                 isSearchActive = showSearch,
@@ -164,7 +174,7 @@ fun PerAppProxyScreen(
                             )
                         }
                     }
-                    Box {
+                    if (!simpleMode) Box {
                         IconButton(onClick = { showMenu = true }) {
                             Icon(
                                 painterResource(R.drawable.ic_more_vert_24dp),
@@ -201,6 +211,16 @@ fun PerAppProxyScreen(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surface
             ) {
+                if (simpleMode) {
+                    Text(
+                        text = stringResource(R.string.ats_apps_without_vpn_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                } else
                 // ATS: one full-width row per switch, so long (e.g. Russian) labels never run
                 // under the switch; the whole row toggles, the info button sits on the first row.
                 Column(modifier = Modifier.fillMaxWidth()) {

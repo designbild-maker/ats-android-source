@@ -625,4 +625,10 @@
     <string name="ats_admin_open">Open</string>
     <string name="ats_cancel">Cancel</string>
     <string name="ats_admin_unavailable">Advanced settings are not available in this build</string>
+    <string name="ats_key_already_added">This key is already added — refreshing it</string>
+    <string name="ats_key_refreshed">Settings updated</string>
+    <string name="ats_key_refresh_failed">Could not update settings. Check the internet connection</string>
+    <string name="ats_clipboard_empty">The clipboard is empty — copy the key in the bot first</string>
+    <string name="ats_sub_key_title">ATS key</string>
+    <string name="ats_apps_without_vpn_hint">Checked apps always work without VPN. Use it only for apps that refuse to work while a VPN is on.</string>
 </resources>

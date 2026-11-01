@@ -131,6 +131,7 @@ object AppConfig {
     const val APP_URL = "$GITHUB_URL/designbild-maker/ats-android-source"
     const val UPSTREAM_URL = "$GITHUB_URL/2dust/v2rayNG"
     const val SUPPORT_URL = "https://t.me/ats_vpn_key_bot"
+    const val RENEW_URL = "https://t.me/ats_vpn_key_bot?start=renew"
     const val APP_API_URL = "https://api.github.com/repos/designbild-maker/ats-android/releases"
     const val APP_ISSUES_URL = SUPPORT_URL
     const val APP_WIKI_MODE = "$UPSTREAM_URL/wiki/Mode"

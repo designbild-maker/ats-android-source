@@ -630,4 +630,10 @@
     <string name="ats_admin_open">Открыть</string>
     <string name="ats_cancel">Отмена</string>
     <string name="ats_admin_unavailable">Дополнительные настройки недоступны в этой сборке</string>
+    <string name="ats_key_already_added">Этот ключ уже добавлен — обновляю его</string>
+    <string name="ats_key_refreshed">Настройки обновлены</string>
+    <string name="ats_key_refresh_failed">Не удалось обновить настройки. Проверьте интернет</string>
+    <string name="ats_clipboard_empty">Буфер пуст — сначала скопируйте ключ в боте</string>
+    <string name="ats_sub_key_title">Ключ ATS</string>
+    <string name="ats_apps_without_vpn_hint">Отмеченные приложения всегда работают без VPN. Нужно только для приложений, которые отказываются работать при включённом VPN.</string>
 </resources>

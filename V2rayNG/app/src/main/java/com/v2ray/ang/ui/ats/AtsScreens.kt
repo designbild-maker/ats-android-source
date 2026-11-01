@@ -402,7 +402,7 @@ private fun AtsSubscription(state: AtsScreenState, callbacks: AtsCallbacks) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = info?.title ?: state.subscriptionName.orEmpty(),
+                    text = info?.title ?: state.subscriptionName ?: stringResource(R.string.ats_sub_key_title),
                     fontSize = 14.sp,
                     color = AtsMuted,
                     maxLines = 1,
