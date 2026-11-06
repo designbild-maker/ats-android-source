@@ -60,6 +60,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -284,6 +285,7 @@ private fun AtsHome(state: AtsScreenState, callbacks: AtsCallbacks, onOpenServer
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
                 .size(200.dp)
+                .clip(CircleShape) // keeps the press ripple inside the circle
                 .background(if (state.isRunning) AtsMintDark else AtsCard, CircleShape)
                 .border(6.dp, ringColor, CircleShape)
                 .clickable(role = Role.Button, onClickLabel = actionLabel, onClick = callbacks.onToggleVpn)
@@ -804,6 +806,7 @@ private fun AtsGroup(content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
             .background(AtsCard, RoundedCornerShape(16.dp))
             .border(1.dp, AtsBorder, RoundedCornerShape(16.dp))
     ) {
@@ -890,6 +893,7 @@ private fun AtsCardRow(onClick: () -> Unit, content: @Composable RowScope.() -> 
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(AtsCard, RoundedCornerShape(16.dp))
             .border(1.dp, AtsBorder, RoundedCornerShape(16.dp))
             .clickable(role = Role.Button, onClick = onClick)
