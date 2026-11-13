@@ -551,6 +551,11 @@ class Telegram:
                 res = json.loads(e.read().decode())
             except Exception:
                 res = {"ok": False, "description": f"HTTP {e.code}"}
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError, ValueError) as e:
+            # Long polling to Telegram sometimes times out or drops; the main loop simply
+            # asks again, so this is logged as one short line instead of a traceback.
+            log("telegram", method, "network:", getattr(e, "reason", None) or e.__class__.__name__)
+            return None
         if not res.get("ok"):
             log("telegram", method, "error:", res.get("description"))
             return None
@@ -927,11 +932,14 @@ class Bot:
             log("cannot reach Telegram or wrong BOT_TOKEN")
             sys.exit(1)
         log(f"started as @{me.get('username')}")
+        # No message to the admin on a normal start (the system restarts the bot after
+        # updates); only a problem with the panel is reported.
         try:
             log(" / ".join(self.panel.check_summary()))
         except Exception as e:  # never let a panel problem stop the bot
             log("panel check failed:", repr(e))
-        self.tg.send(ADMIN_ID, "Бот ATS запущен. Команды администратора: /admin")
+            self.tg.send(ADMIN_ID, f"Бот ATS перезапущен, но панель 3x-ui недоступна: {esc(e)}\n"
+                                   "Проверьте панель и её порт, затем /check.")
         while True:
             try:
                 updates = self.tg.call("getUpdates", offset=self.offset, timeout=50,
