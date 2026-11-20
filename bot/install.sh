@@ -82,6 +82,7 @@ if [ ! -f "$ENV_FILE" ]; then
   ask SUB_PATH    "Путь подписки (часть ссылки между портом и ключом)" "sub"
   SUB_PATH=${SUB_PATH#/}; SUB_PATH=${SUB_PATH%/}
   ask SUB_BASE_URL "Начало ссылки подписки" "https://$SERVER_IP:2096/$SUB_PATH/"
+  ask SUB_BACKUP_URL "Запасной адрес подписки, начало ссылки (Enter — нет)" ""
   ask INBOUND_PORTS "Порты подключений ATS (через запятую)" "443,8443"
   ask DEVICE_LIMIT "Устройств на один ключ" "3"
   umask 077
@@ -93,6 +94,7 @@ PANEL_USER=$PANEL_USER
 PANEL_PASS=$PANEL_PASS
 PANEL_TOKEN=$PANEL_TOKEN
 SUB_BASE_URL=$SUB_BASE_URL
+SUB_BACKUP_URL=$SUB_BACKUP_URL
 INBOUND_PORTS=$INBOUND_PORTS
 DEVICE_LIMIT=$DEVICE_LIMIT
 EOF

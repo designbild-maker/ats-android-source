@@ -475,20 +475,12 @@ object AngConfigManager {
                 return SubscriptionUpdateResult(skipCount = 1)
             }
 
-            val url = HttpUtil.toIdnUrl(it.subscription.url)
-            if (!Utils.isValidUrl(url)) {
-                return SubscriptionUpdateResult(failureCount = 1)
-            }
-            if (!it.subscription.allowInsecureUrl) {
-                if (!Utils.isValidSubUrl(url)) {
-                    return SubscriptionUpdateResult(failureCount = 1)
-                }
-            }
-            LogUtil.i(AppConfig.TAG, url)
-            val userAgent = it.subscription.userAgent
-            val requestHeaders = it.subscription.requestHeaders
-            val proxyUsername = SettingsManager.getSocksUsername()
-            val proxyPassword = SettingsManager.getSocksPassword()
+            // ATS: the stored key may carry a backup address in its fragment (see SubscriptionKeyLink).
+            val keyLink = SubscriptionKeyLink.parse(it.subscription.url)
+            val url = validSubscriptionUrl(keyLink.primaryUrl, it.subscription.allowInsecureUrl)
+                ?: return SubscriptionUpdateResult(failureCount = 1)
+            // The link itself is not logged: it is the user's personal key.
+            LogUtil.i(AppConfig.TAG, "Update subscription: ${it.subscription.remarks} (${it.guid})")
 
             // Account info (traffic, expiry, support link) the panel sends in the response headers.
             var usageInfo: SubscriptionUsageInfo? = null
@@ -501,37 +493,14 @@ object AngConfigManager {
                 )
             }
 
-            var configText = try {
-                val httpPort = SettingsManager.getHttpPort()
-                HttpUtil.getUrlContentWithUserAgent(
-                    UrlContentRequest(
-                        url = url,
-                        userAgent = userAgent,
-                        requestHeaders = requestHeaders,
-                        timeout = 15000,
-                        httpPort = httpPort,
-                        proxyUsername = proxyUsername,
-                        proxyPassword = proxyPassword
-                    ),
-                    captureUsageInfo
-                )
-            } catch (e: Exception) {
-                LogUtil.e(AppConfig.ANG_PACKAGE, "Update subscription: proxy not ready or other error", e)
-                ""
-            }
+            var configText = downloadSubscription(url, it, captureUsageInfo)
             if (configText.isEmpty()) {
-                configText = try {
-                    HttpUtil.getUrlContentWithUserAgent(
-                        UrlContentRequest(
-                            url = url,
-                            userAgent = userAgent,
-                            requestHeaders = requestHeaders
-                        ),
-                        captureUsageInfo
-                    )
-                } catch (e: Exception) {
-                    LogUtil.e(AppConfig.TAG, "Update subscription: Failed to get URL content with user agent", e)
-                    ""
+                val backupUrl = keyLink.fallbackUrl?.let { backup ->
+                    validSubscriptionUrl(backup, it.subscription.allowInsecureUrl)
+                }
+                if (backupUrl != null) {
+                    LogUtil.w(AppConfig.TAG, "Update subscription: main address failed, trying the backup address (${it.guid})")
+                    configText = downloadSubscription(backupUrl, it, captureUsageInfo)
                 }
             }
             if (configText.isEmpty()) {
@@ -556,6 +525,63 @@ object AngConfigManager {
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "Failed to update config via subscription", e)
             return SubscriptionUpdateResult(failureCount = 1)
+        }
+    }
+
+    /** Returns the IDN form of [raw] when it may be downloaded as a subscription, otherwise null. */
+    private fun validSubscriptionUrl(raw: String, allowInsecureUrl: Boolean): String? {
+        val url = try {
+            HttpUtil.toIdnUrl(raw)
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "Update subscription: invalid subscription address", e)
+            return null
+        }
+        if (!Utils.isValidUrl(url)) return null
+        if (!allowInsecureUrl && !Utils.isValidSubUrl(url)) return null
+        return url
+    }
+
+    /**
+     * Downloads one subscription address: first through the running proxy (when it is up),
+     * then directly. Returns an empty string when both attempts fail.
+     */
+    private fun downloadSubscription(
+        url: String,
+        sub: SubscriptionCache,
+        onResponseHeaders: (Headers) -> Unit,
+    ): String {
+        val userAgent = sub.subscription.userAgent
+        val requestHeaders = sub.subscription.requestHeaders
+        val viaProxy = try {
+            HttpUtil.getUrlContentWithUserAgent(
+                UrlContentRequest(
+                    url = url,
+                    userAgent = userAgent,
+                    requestHeaders = requestHeaders,
+                    timeout = 15000,
+                    httpPort = SettingsManager.getHttpPort(),
+                    proxyUsername = SettingsManager.getSocksUsername(),
+                    proxyPassword = SettingsManager.getSocksPassword()
+                ),
+                onResponseHeaders
+            )
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.ANG_PACKAGE, "Update subscription: proxy not ready or other error (${sub.guid})", e)
+            ""
+        }
+        if (viaProxy.isNotEmpty()) return viaProxy
+        return try {
+            HttpUtil.getUrlContentWithUserAgent(
+                UrlContentRequest(
+                    url = url,
+                    userAgent = userAgent,
+                    requestHeaders = requestHeaders
+                ),
+                onResponseHeaders
+            )
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "Update subscription: Failed to get URL content with user agent (${sub.guid})", e)
+            ""
         }
     }
 
@@ -626,9 +652,23 @@ object AngConfigManager {
                 return 0
             }
         }
+        val keyLink = SubscriptionKeyLink.parse(url)
+        if (keyLink.fallbackUrl != null) {
+            // ATS: the same key with a (new) backup address updates the stored key instead of
+            // adding a second copy of the same subscription.
+            subscriptions.firstOrNull { SubscriptionKeyLink.sameSubscription(it.subscription.url, url) }?.let {
+                it.subscription.url = url
+                MmkvManager.encodeSubscription(it.guid, it.subscription)
+                return 1
+            }
+        }
         val uri = URI(Utils.fixIllegalUrl(url))
         val subItem = SubscriptionItem()
-        subItem.remarks = uri.fragment ?: "import sub"
+        subItem.remarks = if (keyLink.fallbackUrl != null) {
+            keyLink.name ?: "import sub"
+        } else {
+            uri.fragment ?: "import sub"
+        }
         subItem.url = url
         val subId = Utils.getUuid()
         MmkvManager.encodeSubscription(subId, subItem)

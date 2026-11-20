@@ -29,6 +29,7 @@ import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsChangeManager
 import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.handler.SubscriptionInfoParser
+import com.v2ray.ang.handler.SubscriptionKeyLink
 import com.v2ray.ang.ui.AboutActivity
 import com.v2ray.ang.ui.base.HelperBaseComponentActivity
 import com.v2ray.ang.ui.main.MainAction
@@ -251,12 +252,18 @@ class AtsHomeActivity : HelperBaseComponentActivity() {
 
     /**
      * Adds a key. A key that is already in the app is not an error: it is refreshed instead,
-     * which also picks up a renewal made in the bot.
+     * which also picks up a renewal made in the bot. The same key with a new backup address
+     * goes through the import, which updates the stored key (see [SubscriptionKeyLink]).
      */
     private fun importKey(raw: String) {
         val text = raw.trim()
         lifecycleScope.launch(Dispatchers.IO) {
-            val known = MmkvManager.decodeSubscriptions().any { it.subscription.url.trim() == text }
+            val newBackup = SubscriptionKeyLink.parse(text).fallbackUrl
+            val known = MmkvManager.decodeSubscriptions().any {
+                val stored = it.subscription.url.trim()
+                stored == text || (SubscriptionKeyLink.sameSubscription(stored, text) &&
+                        (newBackup == null || SubscriptionKeyLink.parse(stored).fallbackUrl == newBackup))
+            }
             withContext(Dispatchers.Main) {
                 if (known) {
                     toast(R.string.ats_key_already_added)

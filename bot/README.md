@@ -26,6 +26,12 @@ curl -fsSL https://raw.githubusercontent.com/designbild-maker/ats-android-source
 (Настройки → Безопасность → API Token): `... | sudo SET_PANEL_TOKEN=1 bash`. Ввести настройки заново:
 `... | sudo RECONFIGURE=1 bash`. Настройки: `/opt/ats-bot/.env` (доступ только у root и бота).
 
+Запасной адрес подписки (необязательно): строка `SUB_BACKUP_URL=https://<запасной сервер>:<порт>/<путь>/`
+в `.env` и `sudo systemctl restart ats-bot`. Тогда бот выдаёт ключ вида
+`<основная ссылка>#ATS?fallback-url=<запасная ссылка>`: ATS (с версии 0.2.5) и Happ скачивают подписку
+с запасного адреса, если основной не отвечает. Запасной сервер должен отдавать ту же подписку
+(например, nginx-прокси на основную панель).
+
 Полезное: `sudo systemctl status ats-bot`, `sudo journalctl -u ats-bot -f`.
 
 Лимит устройств в 3x-ui работает, только если в меню `x-ui` включено «IP Limit Management» (fail2ban).

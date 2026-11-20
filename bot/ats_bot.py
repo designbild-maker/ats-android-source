@@ -56,6 +56,12 @@ PANEL_TOKEN = os.environ.get("PANEL_TOKEN", "")
 SUB_BASE_URL = os.environ.get("SUB_BASE_URL", "")
 if SUB_BASE_URL and not SUB_BASE_URL.endswith("/"):
     SUB_BASE_URL += "/"
+# Optional backup subscription address (another server proxying the same subscription).
+# When set, the key carries it as "#ATS?fallback-url=..." (Happ format): ATS 0.2.5+ and Happ
+# download the subscription from there when the main address does not answer.
+SUB_BACKUP_URL = os.environ.get("SUB_BACKUP_URL", "")
+if SUB_BACKUP_URL and not SUB_BACKUP_URL.endswith("/"):
+    SUB_BACKUP_URL += "/"
 INBOUND_PORTS = [int(p) for p in os.environ.get("INBOUND_PORTS", "443,8443").split(",") if p.strip()]
 DEVICE_LIMIT = int(os.environ.get("DEVICE_LIMIT", "3"))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(HERE, "ats_bot.db"))
@@ -591,7 +597,10 @@ class Bot:
     # ----- user side
 
     def sub_link(self, sub_id):
-        return SUB_BASE_URL + sub_id
+        link = SUB_BASE_URL + sub_id
+        if SUB_BACKUP_URL:
+            link += "#ATS?fallback-url=" + urllib.parse.quote(SUB_BACKUP_URL + sub_id, safe="")
+        return link
 
     def key_message(self, sub_id, expiry):
         return (
@@ -810,6 +819,8 @@ class Bot:
             try:
                 lines = [esc(x) for x in self.panel.check_summary()]
                 lines.append(f"Ссылки подписки: {esc(SUB_BASE_URL)}…")
+                lines.append(f"Запасной адрес: {esc(SUB_BACKUP_URL)}…" if SUB_BACKUP_URL
+                             else "Запасной адрес: не задан (SUB_BACKUP_URL)")
                 self.tg.send(chat_id, "\n".join(lines))
             except PanelError as e:
                 self.tg.send(chat_id, f"Панель недоступна: {esc(e)}")
