@@ -41,6 +41,7 @@ object SettingsManager {
         ensureDefaultSettings()
         applyAtsDefaultsOnce()
         applyAtsDefaultsV2()
+        applyAtsDefaultsV3()
         //ensureDefaultSubscription()
         initRoutingRulesets(context)
         migrateServerListToSubscriptions()
@@ -515,6 +516,20 @@ object SettingsManager {
             return
         }
         MmkvManager.encodeSettings(AppConfig.PREF_BYPASS_APPS, true)
+        MmkvManager.encodeSettings(appliedKey, true)
+    }
+
+    /**
+     * ATS 0.3 "Auto" server: the observatory checks the key's servers every minute (upstream
+     * default is 3 minutes), so a server that stops answering is dropped sooner. Once; keeps
+     * a value already set in the advanced settings.
+     */
+    private fun applyAtsDefaultsV3() {
+        val appliedKey = "ats_defaults_applied_v3"
+        if (MmkvManager.decodeSettingsBool(appliedKey, false)) {
+            return
+        }
+        ensureDefaultValue(AppConfig.PREF_OBSERVATORY_LEAST_PING_INTERVAL, "1m")
         MmkvManager.encodeSettings(appliedKey, true)
     }
 

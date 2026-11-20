@@ -564,4 +564,6 @@
     <string name="sub_info_open_page">باز کردن صفحه اطلاعات اشتراک</string>
     <string name="sub_info_unlimited">نامحدود</string>
 
+    <string name="ats_server_auto">خودکار</string>
+    <string name="ats_server_auto_sub">سریع‌ترین سرور فعال، خودکار تغییر می‌کند</string>
 </resources>

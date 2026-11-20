@@ -564,4 +564,6 @@
     <string name="sub_info_open_page">সাবস্ক্রিপশন তথ্যের পাতা খুলুন</string>
     <string name="sub_info_unlimited">সীমাহীন</string>
 
+    <string name="ats_server_auto">স্বয়ংক্রিয়</string>
+    <string name="ats_server_auto_sub">দ্রুততম চালু সার্ভার, নিজে থেকেই বদলায়</string>
 </resources>

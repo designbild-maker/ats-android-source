@@ -631,4 +631,6 @@
     <string name="ats_clipboard_empty">The clipboard is empty — copy the key in the bot first</string>
     <string name="ats_sub_key_title">ATS key</string>
     <string name="ats_apps_without_vpn_hint">Checked apps always work without VPN. Use it only for apps that refuse to work while a VPN is on.</string>
+    <string name="ats_server_auto">Auto</string>
+    <string name="ats_server_auto_sub">Fastest working server, switches by itself</string>
 </resources>

@@ -636,4 +636,6 @@
     <string name="ats_clipboard_empty">Буфер пуст — сначала скопируйте ключ в боте</string>
     <string name="ats_sub_key_title">Ключ ATS</string>
     <string name="ats_apps_without_vpn_hint">Отмеченные приложения всегда работают без VPN. Нужно только для приложений, которые отказываются работать при включённом VPN.</string>
+    <string name="ats_server_auto">Авто</string>
+    <string name="ats_server_auto_sub">Самый быстрый работающий сервер, переключается сам</string>
 </resources>

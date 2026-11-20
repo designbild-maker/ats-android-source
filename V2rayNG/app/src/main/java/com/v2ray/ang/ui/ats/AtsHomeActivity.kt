@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,6 +26,7 @@ import com.v2ray.ang.extension.toast
 import com.v2ray.ang.extension.toastError
 import com.v2ray.ang.extension.toastSuccess
 import com.v2ray.ang.handler.AngConfigManager
+import com.v2ray.ang.handler.AtsAutoServer
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsChangeManager
 import com.v2ray.ang.handler.SettingsManager
@@ -76,20 +78,39 @@ class AtsHomeActivity : HelperBaseComponentActivity() {
     private fun refreshKeyIfStale(maxAgeMs: Long, showResult: Boolean = false) {
         lifecycleScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            val stale = MmkvManager.decodeSubscriptions().any {
+            val subscriptions = MmkvManager.decodeSubscriptions()
+            // Keys added before "Auto" existed get it here, without waiting for a refresh.
+            val selectionChanged = subscriptions
+                .filter { it.subscription.url.isNotEmpty() }
+                .map { AngConfigManager.ensureAutoServer(it.guid) }
+                .any { it }
+            if (selectionChanged) {
+                withContext(Dispatchers.Main) {
+                    mainViewModel.onAction(MainAction.RefreshGroups)
+                    mainViewModel.refreshSelectedGuid()
+                    if (mainViewModel.uiState.value.isRunning) LauncherManager.restartService(this@AtsHomeActivity)
+                }
+            }
+            val stale = subscriptions.any {
                 it.subscription.enabled && it.subscription.url.isNotEmpty() &&
                         now - it.subscription.lastUpdated >= maxAgeMs
             }
             if (!stale) return@launch
+            val selectedBefore = MmkvManager.getSelectServer()
             val result = try {
                 AngConfigManager.updateConfigViaSubAll()
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "ATS: key refresh failed", e)
                 null
             }
+            // A fresh key gets its "Auto" server during the refresh, which may select it.
+            val autoSelected = MmkvManager.getSelectServer() != selectedBefore
             withContext(Dispatchers.Main) {
                 mainViewModel.onAction(MainAction.RefreshGroups)
                 mainViewModel.refreshSelectedGuid()
+                if (autoSelected && mainViewModel.uiState.value.isRunning) {
+                    LauncherManager.restartService(this@AtsHomeActivity)
+                }
                 if (showResult) {
                     if (result != null && result.successCount > 0) toastSuccess(R.string.ats_key_refreshed)
                     else toastError(R.string.ats_key_refresh_failed)
@@ -131,7 +152,11 @@ class AtsHomeActivity : HelperBaseComponentActivity() {
             ?: uiState.groups.firstOrNull { it.id != AppConfig.DEFAULT_SUBSCRIPTION_ID }
             ?: uiState.groups.firstOrNull { it.id == uiState.selectedGroupId }
         val groupId = group?.id ?: uiState.selectedGroupId
-        val servers by mainViewModel.serversForGroup(groupId).collectAsStateWithLifecycle()
+        val groupServers by mainViewModel.serversForGroup(groupId).collectAsStateWithLifecycle()
+        // "Auto" first: it is the recommended choice and the default for a fresh key.
+        val servers = remember(groupServers) {
+            groupServers.sortedByDescending { AtsAutoServer.isAuto(it.profile) }
+        }
 
         var tab by rememberSaveable { mutableStateOf(AtsTab.Home) }
         var showServerPicker by rememberSaveable { mutableStateOf(false) }

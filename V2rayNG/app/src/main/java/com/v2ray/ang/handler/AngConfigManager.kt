@@ -12,6 +12,7 @@ import com.v2ray.ang.dto.entities.SubscriptionCache
 import com.v2ray.ang.dto.entities.SubscriptionItem
 import com.v2ray.ang.dto.entities.SubscriptionUsageInfo
 import com.v2ray.ang.enums.EConfigType
+import com.v2ray.ang.extension.isComplexType
 import com.v2ray.ang.extension.isNotNullEmpty
 import com.v2ray.ang.fmt.CustomFmt
 import com.v2ray.ang.fmt.Hysteria2Fmt
@@ -514,6 +515,8 @@ object AngConfigManager {
                 it.subscription.usageInfo = usageInfo
                 MmkvManager.encodeSubscription(it.guid, it.subscription)
                 LogUtil.i(AppConfig.TAG, "Subscription updated: ${it.subscription.remarks}, $count configs")
+                // ATS: the key's "Auto" server (created once, kept across refreshes).
+                ensureAutoServer(it.guid)
                 return SubscriptionUpdateResult(
                     configCount = count,
                     successCount = 1
@@ -525,6 +528,37 @@ object AngConfigManager {
         } catch (e: Exception) {
             LogUtil.e(AppConfig.TAG, "Failed to update config via subscription", e)
             return SubscriptionUpdateResult(failureCount = 1)
+        }
+    }
+
+    /**
+     * ATS: makes sure the subscription [subId] has its "Auto" server (see [AtsAutoServer]).
+     * Nothing is created for a subscription without regular servers. The first time "Auto" is
+     * created for a key it also becomes the selected server (see [AtsAutoServer.shouldSelect]).
+     *
+     * @return true when the selected server changed (a running VPN needs a restart to use it).
+     */
+    @Synchronized
+    fun ensureAutoServer(subId: String): Boolean {
+        return try {
+            val profiles = MmkvManager.decodeServerList(subId).mapNotNull { MmkvManager.decodeServerConfig(it) }
+            if (profiles.any { AtsAutoServer.isAutoFor(it, subId) }) return false
+            if (profiles.none { !it.configType.isComplexType() }) return false
+
+            val previous = MmkvManager.getSelectServer()
+            val previousSubId = previous?.let { MmkvManager.decodeServerConfig(it)?.subscriptionId }
+            val onceKey = AtsAutoServer.selectedOnceKey(subId)
+            val selectedOnce = MmkvManager.decodeSettingsBool(onceKey, false)
+
+            val guid = MmkvManager.encodeServerConfig("", AtsAutoServer.newProfile(subId))
+            LogUtil.i(AppConfig.TAG, "ATS: auto server created for subscription $subId")
+            val select = AtsAutoServer.shouldSelect(selectedOnce, previous, previousSubId, subId)
+            if (select) MmkvManager.setSelectServer(guid)
+            MmkvManager.encodeSettings(onceKey, true)
+            MmkvManager.getSelectServer() != previous
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "ATS: failed to create the auto server for subscription $subId", e)
+            false
         }
     }
 

@@ -562,4 +562,6 @@
     <string name="sub_info_open_page">Mở trang thông tin đăng ký</string>
     <string name="sub_info_unlimited">Không giới hạn</string>
 
+    <string name="ats_server_auto">Tự động</string>
+    <string name="ats_server_auto_sub">Máy chủ hoạt động nhanh nhất, tự chuyển đổi</string>
 </resources>

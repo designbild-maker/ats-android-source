@@ -77,6 +77,7 @@ import com.v2ray.ang.R
 import com.v2ray.ang.dto.entities.ServersCache
 import com.v2ray.ang.dto.entities.SubscriptionUsageInfo
 import com.v2ray.ang.extension.toTrafficString
+import com.v2ray.ang.handler.AtsAutoServer
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.ceil
@@ -309,7 +310,7 @@ private fun AtsHome(state: AtsScreenState, callbacks: AtsCallbacks, onOpenServer
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = if (state.isRunning) selected?.profile?.remarks.orEmpty()
+            text = if (state.isRunning) atsServerTitle(selected).orEmpty()
             else stringResource(R.string.ats_tap_to_connect),
             fontSize = 15.sp,
             color = AtsMuted,
@@ -337,7 +338,7 @@ private fun AtsHome(state: AtsScreenState, callbacks: AtsCallbacks, onOpenServer
                     .padding(start = 14.dp),
             ) {
                 Text(
-                    text = selected?.profile?.remarks ?: stringResource(R.string.ats_no_server),
+                    text = atsServerTitle(selected) ?: stringResource(R.string.ats_no_server),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -346,8 +347,11 @@ private fun AtsHome(state: AtsScreenState, callbacks: AtsCallbacks, onOpenServer
                 )
                 val delay = selected?.testDelayMillis ?: 0L
                 Text(
-                    text = if (delay > 0) stringResource(R.string.ats_server_ping, delay)
-                    else stringResource(R.string.ats_server_label),
+                    text = when {
+                        AtsAutoServer.isAuto(selected?.profile) -> stringResource(R.string.ats_server_auto_sub)
+                        delay > 0 -> stringResource(R.string.ats_server_ping, delay)
+                        else -> stringResource(R.string.ats_server_label)
+                    },
                     fontSize = 13.sp,
                     color = AtsMuted,
                 )
@@ -517,7 +521,7 @@ private fun AtsSettings(state: AtsScreenState, callbacks: AtsCallbacks, onOpenSe
             AtsDivider()
             AtsLinkRow(
                 title = stringResource(R.string.ats_server_label),
-                subtitle = selected?.profile?.remarks ?: stringResource(R.string.ats_no_server),
+                subtitle = atsServerTitle(selected) ?: stringResource(R.string.ats_no_server),
                 onClick = onOpenServers,
             )
         }
@@ -682,6 +686,14 @@ private fun AtsPinDialog(
 
 // ---------------------------------------------------------------- server picker
 
+/** Server name for the ATS screens: the "Auto" server gets a localized label. */
+@Composable
+private fun atsServerTitle(server: ServersCache?): String? = when {
+    server == null -> null
+    AtsAutoServer.isAuto(server.profile) -> stringResource(R.string.ats_server_auto)
+    else -> server.profile.remarks
+}
+
 @Composable
 private fun AtsServerPicker(
     servers: List<ServersCache>,
@@ -719,12 +731,18 @@ private fun AtsServerPicker(
                                 .padding(start = 12.dp)
                         ) {
                             Text(
-                                text = server.profile.remarks,
+                                text = atsServerTitle(server).orEmpty(),
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            if (server.testDelayMillis > 0) {
+                            if (AtsAutoServer.isAuto(server.profile)) {
+                                Text(
+                                    text = stringResource(R.string.ats_server_auto_sub),
+                                    fontSize = 13.sp,
+                                    color = AtsMuted,
+                                )
+                            } else if (server.testDelayMillis > 0) {
                                 Text(
                                     text = stringResource(R.string.ats_server_ping, server.testDelayMillis),
                                     fontSize = 13.sp,

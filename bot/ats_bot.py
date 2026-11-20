@@ -342,10 +342,14 @@ class Panel:
             for c in self.api("GET", "/panel/api/clients/list") or []:
                 for iid in c.get("inboundIds") or []:
                     counts[iid] = counts.get(iid, 0) + 1
-        lines = [f"Панель: OK ({'3x-ui v3' if v3 else '3x-ui v2'}). Подключения ATS ({len(ibs)} из {len(INBOUND_PORTS)}):"]
+        ports = ", ".join(str(p) for p in INBOUND_PORTS)
+        lines = [f"Панель: OK ({'3x-ui v3' if v3 else '3x-ui v2'}). Подключений ATS: {len(ibs)} (порты {ports}):"]
         for ib in ibs:
             n = counts.get(ib["id"], 0) if v3 else len(ib["clients"])
             lines.append(f"• порт {ib['port']} «{ib['remark']}», клиентов: {n}")
+        missing = [str(p) for p in INBOUND_PORTS if all(ib["port"] != p for ib in ibs)]
+        if missing:
+            lines.append("Нет подключений на портах: " + ", ".join(missing))
         return lines
 
     # ----- create / extend

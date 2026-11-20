@@ -562,4 +562,6 @@
     <string name="sub_info_open_page">打开订阅信息页面</string>
     <string name="sub_info_unlimited">无限制</string>
 
+    <string name="ats_server_auto">自动</string>
+    <string name="ats_server_auto_sub">最快的可用服务器，自动切换</string>
 </resources>
